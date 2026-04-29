@@ -1,21 +1,7 @@
-import pandas as pd
 import re
+import pandas as pd
 
 
-# -------------------------------
-# Detect postcode column
-# -------------------------------
-def detect_postcode_column(df):
-    for col in df.columns:
-        lower = str(col).lower()
-        if "postcode" in lower or "post code" in lower or "zip" in lower:
-            return col
-    return None
-
-
-# -------------------------------
-# Clean postcode values
-# -------------------------------
 def clean_postcode(value):
     if pd.isna(value):
         return None
@@ -30,154 +16,139 @@ def clean_postcode(value):
     return None
 
 
-# -------------------------------
-# Postcode → State
-# -------------------------------
 def postcode_to_state(postcode):
-    if postcode is None:
+    if postcode is None or pd.isna(postcode):
         return "Unknown"
 
-    pc = int(postcode)
+    try:
+        pc = int(postcode)
+    except Exception:
+        return "Unknown"
 
-    if 1000 <= pc <= 2599 or 2619 <= pc <= 2899 or 2921 <= pc <= 2999:
+    if 1000 <= pc <= 1999 or 2000 <= pc <= 2599 or 2619 <= pc <= 2899 or 2921 <= pc <= 2999:
         return "NSW"
-    if 200 <= pc <= 299 or 2600 <= pc <= 2618 or 2900 <= pc <= 2920:
-        return "ACT"
-    if 3000 <= pc <= 3999:
+
+    if 3000 <= pc <= 3999 or 8000 <= pc <= 8999:
         return "VIC"
-    if 4000 <= pc <= 4999:
+
+    if 4000 <= pc <= 4999 or 9000 <= pc <= 9999:
         return "QLD"
+
     if 5000 <= pc <= 5999:
         return "SA"
+
     if 6000 <= pc <= 6999:
         return "WA"
+
     if 7000 <= pc <= 7999:
         return "TAS"
+
+    if 2600 <= pc <= 2618 or 2900 <= pc <= 2920:
+        return "ACT"
+
     if 800 <= pc <= 999:
         return "NT"
 
     return "Unknown"
 
 
-# -------------------------------
-# Postcode → Metro / Regional
-# -------------------------------
-def classify_australian_area(postcode):
-    if postcode is None:
+def postcode_to_city(postcode):
+    if postcode is None or pd.isna(postcode):
         return "Unknown"
 
-    pc = int(postcode)
+    try:
+        pc = int(postcode)
+    except Exception:
+        return "Unknown"
 
-    # Major metro zones
-    metro_ranges = [
-        range(2000, 2240),   # Sydney
-        range(3000, 3210),   # Melbourne
-        range(4000, 4218),   # Brisbane
-        range(5000, 5175),   # Adelaide
-        range(6000, 6215),   # Perth
-        range(7000, 7170),   # Hobart
-        range(2600, 2621),   # Canberra
-        range(800, 840),     # Darwin
-    ]
+    if 2000 <= pc <= 2234:
+        return "Sydney"
 
-    for r in metro_ranges:
-        if pc in r:
-            return "Metro / City"
+    if 3000 <= pc <= 3207:
+        return "Melbourne"
 
-    # Remote approximation
-    remote_ranges = [
-        range(841, 1000),
-        range(5700, 5800),
-        range(6400, 6800),
-        range(4800, 5000),
-        range(2830, 2900),
-    ]
+    if 4000 <= pc <= 4207:
+        return "Brisbane"
 
-    for r in remote_ranges:
-        if pc in r:
-            return "Regional / Remote"
+    if 5000 <= pc <= 5199:
+        return "Adelaide"
+
+    if 6000 <= pc <= 6199:
+        return "Perth"
+
+    if 7000 <= pc <= 7199:
+        return "Hobart"
+
+    if 2600 <= pc <= 2618:
+        return "Canberra"
+
+    if 800 <= pc <= 899:
+        return "Darwin"
+
+    return "Regional / Other"
+
+
+def postcode_to_area_type(postcode):
+    city = postcode_to_city(postcode)
+
+    if city in [
+        "Sydney",
+        "Melbourne",
+        "Brisbane",
+        "Adelaide",
+        "Perth",
+        "Hobart",
+        "Canberra",
+        "Darwin",
+    ]:
+        return "Metro / City"
+
+    if city == "Unknown":
+        return "Unknown"
 
     return "Regional"
 
 
-# -------------------------------
-# Postcode → Estimated City
-# -------------------------------
-def postcode_to_city(postcode):
-    if postcode is None:
-        return "Unknown"
+def detect_postcode_column(df):
+    possible_names = [
+        "postcode",
+        "post code",
+        "postal code",
+        "zip",
+        "zip code",
+        "school postcode",
+        "venue postcode",
+        "audience postcode",
+        "participant postcode",
+    ]
 
-    pc = int(postcode)
+    for col in df.columns:
+        col_lower = str(col).lower().strip()
 
-    # NSW
-    if 2000 <= pc <= 2240:
-        return "Sydney"
-    if 2250 <= pc <= 2338:
-        return "Central Coast / Newcastle"
-    if 2339 <= pc <= 2599:
-        return "Regional NSW"
+        if any(name in col_lower for name in possible_names):
+            return col
 
-    # VIC
-    if 3000 <= pc <= 3207:
-        return "Melbourne"
-    if 3210 <= pc <= 3325:
-        return "Geelong"
-    if 3326 <= pc <= 3999:
-        return "Regional VIC"
-
-    # QLD
-    if 4000 <= pc <= 4207:
-        return "Brisbane"
-    if 4208 <= pc <= 4229:
-        return "Gold Coast"
-    if 4300 <= pc <= 4399:
-        return "Ipswich / Regional QLD"
-    if 4400 <= pc <= 4999:
-        return "Regional QLD"
-
-    # SA
-    if 5000 <= pc <= 5175:
-        return "Adelaide"
-    if 5176 <= pc <= 5999:
-        return "Regional SA"
-
-    # WA
-    if 6000 <= pc <= 6215:
-        return "Perth"
-    if 6216 <= pc <= 6999:
-        return "Regional WA"
-
-    # TAS
-    if 7000 <= pc <= 7170:
-        return "Hobart"
-    if 7171 <= pc <= 7999:
-        return "Regional TAS"
-
-    # ACT
-    if 2600 <= pc <= 2620:
-        return "Canberra"
-
-    # NT
-    if 800 <= pc <= 840:
-        return "Darwin"
-    if 841 <= pc <= 999:
-        return "Regional NT"
-
-    return "Other / Unknown"
+    return None
 
 
-# -------------------------------
-# MAIN FUNCTION (this is what you import)
-# -------------------------------
 def add_geographic_insights(df):
     updated_df = df.copy()
 
     postcode_col = detect_postcode_column(updated_df)
 
-    if postcode_col:
-        updated_df["Clean Postcode"] = updated_df[postcode_col].apply(clean_postcode)
-        updated_df["Australian State"] = updated_df["Clean Postcode"].apply(postcode_to_state)
-        updated_df["Area Type"] = updated_df["Clean Postcode"].apply(classify_australian_area)
-        updated_df["Estimated City"] = updated_df["Clean Postcode"].apply(postcode_to_city)
+    if postcode_col is None:
+        updated_df["Clean Postcode"] = None
+        updated_df["Australian State"] = "Unknown"
+        updated_df["Estimated City"] = "Unknown"
+        updated_df["Area Type"] = "Unknown"
+        return updated_df
+
+    updated_df["Clean Postcode"] = updated_df[postcode_col].apply(clean_postcode)
+
+    updated_df["Australian State"] = updated_df["Clean Postcode"].apply(postcode_to_state)
+
+    updated_df["Estimated City"] = updated_df["Clean Postcode"].apply(postcode_to_city)
+
+    updated_df["Area Type"] = updated_df["Clean Postcode"].apply(postcode_to_area_type)
 
     return updated_df
