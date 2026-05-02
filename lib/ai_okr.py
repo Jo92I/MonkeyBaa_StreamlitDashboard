@@ -1,4 +1,5 @@
 import os
+from openai import OpenAI
 import re
 import pandas as pd
 import streamlit as st
@@ -13,25 +14,32 @@ except Exception:
 
 
 def get_openai_client():
-    load_dotenv()  # For local .env use
-
-    if OpenAI is None:
-        return None, "OpenAI package is not installed. Run: python -m pip install openai"
+    api_key = None
 
     try:
-        api_key = st.secrets["OPENAI_API_KEY"]
+        api_key = st.secrets.get("OPENAI_API_KEY")
     except Exception:
+        api_key = None
+
+    if not api_key:
         api_key = os.getenv("OPENAI_API_KEY")
 
     if not api_key:
-        return None, "OpenAI API key not found. Add it to Streamlit Secrets or your local .env file."
+        st.error("OpenAI API key not found. Please add OPENAI_API_KEY in Streamlit Secrets.")
+        st.stop()
 
-    try:
-        client = OpenAI(api_key=api_key)
-        return client, None
-    except Exception as e:
-        return None, str(e)
+    return OpenAI(api_key=api_key)
 
+
+def generate_ai_strategic_analysis(prompt):
+    client = get_openai_client()
+
+    response = client.responses.create(
+        model="gpt-4.1-mini",
+        input=prompt,
+    )
+
+    return response.output_text
 
 def clean_text(value):
     if pd.isna(value):

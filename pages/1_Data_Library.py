@@ -24,11 +24,35 @@ st.title("📁 Monkey Baa Data Library")
 
 st.markdown("""
 Upload, clean, store and manage Monkey Baa datasets.  
-This page accepts Excel, CSV, JSON and TXT files.  
-You can search, filter, edit, download and match venue/regional data.
+This page accepts **Excel, CSV, JSON and TXT files**.  
+Uploaded files are automatically cleaned before they are saved to the library.
 """)
 
-tab_upload, tab_manage = st.tabs(["Upload New Data", "Manage Existing Data"])
+tab_upload, tab_manage = st.tabs(["Upload & Clean New Data", "Manage Existing Data"])
+
+
+def cleaning_report(raw_df, cleaned_df):
+    duplicate_count = raw_df.duplicated().sum()
+    missing_before = raw_df.isna().sum().sum()
+    missing_after = cleaned_df.isna().sum().sum()
+
+    text_cols = cleaned_df.select_dtypes(include="object").columns.tolist()
+    numeric_cols = cleaned_df.select_dtypes(include=["int64", "float64"]).columns.tolist()
+    date_cols = cleaned_df.select_dtypes(include=["datetime64[ns]"]).columns.tolist()
+
+    return {
+        "raw_rows": len(raw_df),
+        "cleaned_rows": len(cleaned_df),
+        "raw_columns": len(raw_df.columns),
+        "cleaned_columns": len(cleaned_df.columns),
+        "duplicates_removed": duplicate_count,
+        "missing_before": missing_before,
+        "missing_after": missing_after,
+        "text_columns": text_cols,
+        "numeric_columns": numeric_cols,
+        "date_columns": date_cols,
+    }
+
 
 with tab_upload:
     uploaded_file = st.file_uploader(
@@ -41,16 +65,42 @@ with tab_upload:
             raw_df = read_uploaded_file(uploaded_file)
             cleaned_df = clean_dataset(raw_df)
 
-            st.subheader("Preview")
+            report = cleaning_report(raw_df, cleaned_df)
+
+            st.subheader("Cleaning Summary")
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Original Rows", report["raw_rows"])
+            c2.metric("Cleaned Rows", report["cleaned_rows"])
+            c3.metric("Columns", report["cleaned_columns"])
+            c4.metric("Duplicates Removed", report["duplicates_removed"])
+
+            c5, c6 = st.columns(2)
+            c5.metric("Missing Values Before", report["missing_before"])
+            c6.metric("Missing Values After", report["missing_after"])
+
+            st.subheader("Detected Column Types")
+
+            col_a, col_b, col_c = st.columns(3)
+
+            with col_a:
+                st.write("**Text Columns**")
+                st.write(report["text_columns"])
+
+            with col_b:
+                st.write("**Numeric Columns**")
+                st.write(report["numeric_columns"])
+
+            with col_c:
+                st.write("**Date Columns**")
+                st.write(report["date_columns"])
+
+            st.subheader("Cleaned Data Preview")
             st.dataframe(cleaned_df.head(30), use_container_width=True)
 
             summary = generate_dataset_summary(cleaned_df)
 
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Rows", summary["rows"])
-            c2.metric("Columns", summary["columns"])
-            c3.metric("Missing Values", summary["missing_values"])
-            c4.metric("Duplicate Rows", summary["duplicate_rows"])
+            st.subheader("Dataset Details")
 
             dataset_name = st.text_input("Dataset name", value=uploaded_file.name)
 
@@ -71,13 +121,14 @@ with tab_upload:
 
             notes = st.text_area("Dataset notes")
 
-            if st.button("Save Dataset to Library"):
+            if st.button("Save Cleaned Dataset to Library"):
                 save_dataset(cleaned_df, dataset_name, dataset_type, notes)
-                st.success("Dataset saved successfully.")
+                st.success("Cleaned dataset saved successfully.")
                 st.rerun()
 
         except Exception as e:
-            st.error(f"Could not read this file: {e}")
+            st.error(f"Could not read or clean this file: {e}")
+
 
 with tab_manage:
     datasets = list_datasets()
@@ -213,6 +264,3 @@ with tab_manage:
             delete_dataset(filename)
             st.success("Dataset deleted.")
             st.rerun()
-
-from lib.floating_assistant import render_floating_ai_assistant
-render_floating_ai_assistant()

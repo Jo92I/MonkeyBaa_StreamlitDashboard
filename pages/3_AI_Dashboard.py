@@ -1,269 +1,364 @@
-import streamlit as st
+import re
+from collections import Counter
+
 import pandas as pd
 import plotly.express as px
-from io import BytesIO
+import streamlit as st
 
-from lib.data_store import load_all_data, list_datasets, load_dataset
-from lib.geo_australia import add_geographic_insights
-from lib.venue_matcher import add_venue_area_to_survey
-from lib.ai_config import get_openai_client
+from lib.data_store import list_datasets, load_dataset
 
-try:
-    from openai import OpenAI
-except Exception:
-    OpenAI = None
+st.set_page_config(
+    page_title="Monkey Baa Impact Dashboard",
+    page_icon="🎭",
+    layout="wide"
+)
 
-
-# -------------------------------------------------
-# PAGE CONFIG + LOGIN
-# -------------------------------------------------
-st.set_page_config(page_title="Data Review Dashboard", page_icon="📊", layout="wide")
-
-if "logged_in" not in st.session_state or not st.session_state.logged_in:
-    st.warning("Please login first from the Home page.")
-    st.stop()
-
-
-# -------------------------------------------------
-# OPENAI KEY
-# -------------------------------------------------
-OPENAI_API_KEY, api_key_error = get_openai_client()
-
-
-# -------------------------------------------------
-# CSS DESIGN
-# -------------------------------------------------
 st.markdown("""
 <style>
-:root {
-    --card-bg: rgba(255,255,255,0.94);
-    --text-main: #1f2937;
-    --text-soft: #6b7280;
-    --accent: #b83280;
-    --accent-soft: #fce7f3;
-    --border: #f3d1e3;
-    --shadow: rgba(0,0,0,0.08);
+.block-container {
+    padding-top: 2rem;
 }
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        --card-bg: rgba(31,41,55,0.94);
-        --text-main: #f9fafb;
-        --text-soft: #d1d5db;
-        --accent: #f9a8d4;
-        --accent-soft: rgba(131,24,67,0.35);
-        --border: rgba(249,168,212,0.35);
-        --shadow: rgba(0,0,0,0.35);
-    }
-}
-
-.hero-card, .content-card, .metric-card {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
+.hero-card {
+    background: linear-gradient(135deg, #31124d, #7b2cbf);
+    padding: 30px;
     border-radius: 24px;
-    padding: 24px;
-    margin-bottom: 20px;
-    box-shadow: 0 10px 28px var(--shadow);
+    color: white;
+    margin-bottom: 28px;
 }
 
 .hero-title {
-    color: var(--text-main);
-    font-size: 38px;
+    font-size: 34px;
     font-weight: 800;
     margin-bottom: 8px;
 }
 
 .hero-subtitle {
-    color: var(--text-soft);
     font-size: 17px;
-    line-height: 1.6;
+    opacity: 0.92;
 }
 
-.section-title {
-    color: var(--text-main);
-    font-size: 26px;
-    font-weight: 750;
-    margin-top: 20px;
-    margin-bottom: 12px;
+.metric-card {
+    background: white;
+    padding: 22px;
+    border-radius: 18px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+    text-align: center;
+    border: 1px solid #eee;
 }
 
 .metric-number {
-    color: var(--accent);
-    font-size: 34px;
+    font-size: 30px;
     font-weight: 800;
-    text-align: center;
+    color: #3b1c59;
 }
 
 .metric-label {
-    color: var(--text-soft);
-    font-size: 15px;
-    text-align: center;
+    font-size: 14px;
+    color: #555;
 }
 
-.insight-box {
-    background: var(--accent-soft);
-    border-left: 6px solid var(--accent);
-    border-radius: 16px;
+.section-card {
+    background: white;
+    padding: 24px;
+    border-radius: 20px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+    margin-bottom: 22px;
+    border: 1px solid #eee;
+}
+
+.okr-box {
+    background: #f2e8ff;
+    border-left: 6px solid #7b2cbf;
     padding: 18px;
-    color: var(--text-main);
-    margin-bottom: 18px;
+    border-radius: 14px;
+    margin-bottom: 12px;
+}
+
+.small-muted {
+    color: #666;
+    font-size: 14px;
 }
 </style>
 """, unsafe_allow_html=True)
 
 
-# -------------------------------------------------
-# HEADER
-# -------------------------------------------------
-st.markdown("""
-<div class="hero-card">
-    <div class="hero-title">📊 Monkey Baa Data Review Dashboard</div>
-    <div class="hero-subtitle">
-        Select any saved dataset from the Data Library and automatically review its structure,
-        key values, charts, show activity, regional information, missing values and useful insights.
-    </div>
-</div>
-""", unsafe_allow_html=True)
+POSITIVE_WORDS = [
+    "good", "great", "excellent", "amazing", "fun", "enjoyed", "enjoy",
+    "love", "loved", "happy", "engaging", "creative", "inspiring",
+    "wonderful", "positive", "interesting", "helpful", "excited",
+    "beautiful", "fantastic", "brilliant"
+]
+
+NEGATIVE_WORDS = [
+    "bad", "poor", "boring", "confusing", "difficult", "hard", "negative",
+    "disappointed", "issue", "problem", "slow", "unclear", "tired",
+    "lack", "limited", "noisy", "expensive"
+]
+
+THEME_KEYWORDS = {
+    "Engagement": ["engaged", "engaging", "fun", "enjoy", "interactive", "interest", "attention"],
+    "Learning": ["learn", "learning", "understand", "education", "school", "student", "teacher"],
+    "Creativity": ["creative", "creativity", "imagination", "art", "performance", "story", "play"],
+    "Accessibility": ["access", "accessible", "inclusive", "support", "easy", "difficult", "barrier"],
+    "Emotional Impact": ["feel", "feeling", "happy", "excited", "confident", "inspired", "emotion"],
+}
 
 
-# -------------------------------------------------
-# LOAD DATASETS
-# -------------------------------------------------
-datasets = list_datasets()
-
-if not datasets:
-    st.warning("No saved datasets found. Please upload and save data in the Data Library first.")
-    st.stop()
-
-
-# -------------------------------------------------
-# DATASET SELECTION
-# -------------------------------------------------
-st.markdown('<div class="section-title">📁 Select Data to Review</div>', unsafe_allow_html=True)
-
-dataset_options = ["All Saved Data"] + [item["dataset_name"] for item in datasets]
-
-selected_dataset = st.selectbox(
-    "Choose the dataset you want to review",
-    dataset_options
-)
-
-if selected_dataset == "All Saved Data":
-    df = load_all_data()
-    selected_item = {"dataset_name": "All Saved Data", "dataset_type": "Combined"}
-else:
-    selected_item = next(item for item in datasets if item["dataset_name"] == selected_dataset)
-    df = load_dataset(selected_item["filename"])
-
-if df.empty:
-    st.error("The selected dataset is empty.")
-    st.stop()
+def clean_text(value):
+    if pd.isna(value):
+        return ""
+    value = str(value).lower()
+    value = value.replace("â€™", "'").replace("’", "'")
+    value = re.sub(r"\s+", " ", value)
+    return value.strip()
 
 
-# -------------------------------------------------
-# ENRICH DATA
-# -------------------------------------------------
-catalog = list_datasets()
+def tokenize(text):
+    text = clean_text(text)
+    words = re.findall(r"\b[a-zA-Z]{3,}\b", text)
 
-df = add_geographic_insights(df)
+    stopwords = {
+        "the", "and", "for", "that", "this", "with", "was", "were", "are",
+        "you", "they", "have", "has", "from", "but", "all", "our", "their",
+        "there", "about", "very", "into", "also", "when", "what", "your",
+        "will", "been", "would", "could", "should"
+    }
 
-df, venue_message = add_venue_area_to_survey(
-    df,
-    catalog,
-    load_dataset
-)
+    return [w for w in words if w not in stopwords]
 
 
-# -------------------------------------------------
-# COLUMN DETECTION
-# -------------------------------------------------
-def detect_column(dataframe, keywords):
-    for col in dataframe.columns:
+def detect_sentiment(text):
+    words = tokenize(text)
+
+    if not words:
+        return "Neutral"
+
+    positive = sum(1 for word in words if word in POSITIVE_WORDS)
+    negative = sum(1 for word in words if word in NEGATIVE_WORDS)
+
+    if positive > negative:
+        return "Positive"
+    if negative > positive:
+        return "Negative"
+    return "Neutral"
+
+
+def detect_themes(text):
+    words = tokenize(text)
+    found = []
+
+    for theme, keywords in THEME_KEYWORDS.items():
+        if any(keyword in words for keyword in keywords):
+            found.append(theme)
+
+    return ", ".join(found) if found else "General Feedback"
+
+
+def detect_text_columns(df):
+    text_cols = []
+
+    for col in df.columns:
+        sample = df[col].dropna().astype(str).head(50)
+        if sample.empty:
+            continue
+
+        average_length = sample.str.len().mean()
+        unique_ratio = df[col].astype(str).nunique() / max(len(df), 1)
+
+        if average_length > 8 or unique_ratio > 0.25:
+            text_cols.append(col)
+
+    return text_cols
+
+
+def find_possible_column(df, keywords):
+    for col in df.columns:
         col_lower = str(col).lower()
         if any(keyword in col_lower for keyword in keywords):
             return col
     return None
 
 
-show_col = detect_column(df, ["show"])
-date_col = detect_column(df, ["date", "year", "submit", "start"])
-venue_col = detect_column(df, ["venue", "where did you see", "location", "theatre"])
-postcode_col = detect_column(df, ["postcode", "post code"])
+def apply_filters(df):
+    filtered_df = df.copy()
 
-if date_col:
-    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-    df["Year"] = df[date_col].dt.year
+    year_col = find_possible_column(df, ["year", "date"])
+    show_col = find_possible_column(df, ["show", "production", "performance", "event", "program"])
+    region_col = find_possible_column(df, ["region", "location", "venue", "metro", "regional", "area"])
+
+    st.sidebar.title("Dashboard Filters")
+
+    if year_col:
+        if "date" in str(year_col).lower():
+            filtered_df[year_col] = pd.to_datetime(filtered_df[year_col], errors="coerce")
+            years = sorted(filtered_df[year_col].dt.year.dropna().unique())
+        else:
+            years = sorted(filtered_df[year_col].dropna().astype(str).unique())
+
+        selected_years = st.sidebar.multiselect("Year", years, default=years)
+
+        if selected_years:
+            if "date" in str(year_col).lower():
+                filtered_df = filtered_df[filtered_df[year_col].dt.year.isin(selected_years)]
+            else:
+                filtered_df = filtered_df[filtered_df[year_col].astype(str).isin(selected_years)]
+
+    if show_col:
+        shows = sorted(filtered_df[show_col].dropna().astype(str).unique())
+        selected_shows = st.sidebar.multiselect("Show / Program", shows, default=shows)
+
+        if selected_shows:
+            filtered_df = filtered_df[filtered_df[show_col].astype(str).isin(selected_shows)]
+
+    if region_col:
+        regions = sorted(filtered_df[region_col].dropna().astype(str).unique())
+        selected_regions = st.sidebar.multiselect("Region / Venue", regions, default=regions)
+
+        if selected_regions:
+            filtered_df = filtered_df[filtered_df[region_col].astype(str).isin(selected_regions)]
+
+    return filtered_df, year_col, show_col, region_col
 
 
-# -------------------------------------------------
-# DATA FILTERING
-# -------------------------------------------------
-st.markdown('<div class="section-title">🔎 Filter Selected Dataset</div>', unsafe_allow_html=True)
+def analyse_text(df, selected_cols):
+    all_responses = []
 
-filtered_df = df.copy()
+    for col in selected_cols:
+        for value in df[col].dropna().astype(str):
+            if value.strip():
+                all_responses.append({
+                    "column": col,
+                    "response": value,
+                    "sentiment": detect_sentiment(value),
+                    "themes": detect_themes(value),
+                })
 
-filter_columns = st.multiselect(
-    "Choose columns to filter",
-    options=df.columns.tolist()
+    response_df = pd.DataFrame(all_responses)
+
+    all_words = []
+    for response in response_df["response"].tolist() if not response_df.empty else []:
+        all_words.extend(tokenize(response))
+
+    word_df = pd.DataFrame(
+        Counter(all_words).most_common(30),
+        columns=["word", "count"]
+    )
+
+    if response_df.empty:
+        sentiment_df = pd.DataFrame(columns=["sentiment", "count"])
+        theme_df = pd.DataFrame(columns=["theme", "count"])
+    else:
+        sentiment_df = response_df["sentiment"].value_counts().reset_index()
+        sentiment_df.columns = ["sentiment", "count"]
+
+        theme_df = response_df["themes"].value_counts().reset_index()
+        theme_df.columns = ["theme", "count"]
+
+    return word_df, sentiment_df, theme_df, response_df
+
+
+def okr_theme_connection(theme_df):
+    okr_map = {
+        "Engagement": "OKR Analysis: Audience and student engagement outcomes",
+        "Learning": "OKR Analysis: Educational value and learning development",
+        "Creativity": "OKR Analysis: Creativity, imagination and artistic participation",
+        "Accessibility": "OKR Analysis: Inclusion, access and regional reach",
+        "Emotional Impact": "OKR Analysis: Confidence, belonging and social impact",
+        "General Feedback": "OKR Analysis: General service quality and audience experience",
+    }
+
+    rows = []
+
+    for _, row in theme_df.iterrows():
+        theme = row["theme"]
+        count = row["count"]
+
+        for single_theme in str(theme).split(","):
+            single_theme = single_theme.strip()
+
+            rows.append({
+                "Detected Theme": single_theme,
+                "Mentions": count,
+                "Linked OKR / Impact Area": okr_map.get(
+                    single_theme,
+                    "OKR Analysis: General feedback and service quality"
+                )
+            })
+
+    return pd.DataFrame(rows)
+
+
+st.markdown("""
+<div class="hero-card">
+    <div class="hero-title">🎭 Monkey Baa Impact Analytics Dashboard</div>
+    <div class="hero-subtitle">
+        Transforming cleaned survey comments, feedback and program data into structured, visual and evidence-based insights.
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+if "logged_in" not in st.session_state or not st.session_state.logged_in:
+    st.warning("Please login first from the Home page.")
+    st.stop()
+
+datasets = list_datasets()
+
+if not datasets:
+    st.warning("No cleaned datasets found. Please upload and save data in the Data Library first.")
+    st.stop()
+
+dataset_options = [
+    item for item in datasets
+    if item.get("dataset_type") in [
+        "Survey Data",
+        "Dashboard Data",
+        "Performance Information",
+        "Audience Data",
+        "Venue Reference Data",
+        "Other"
+    ]
+]
+
+if not dataset_options:
+    dataset_options = datasets
+
+selected_dataset_name = st.sidebar.selectbox(
+    "Select cleaned dataset",
+    [item["dataset_name"] for item in dataset_options]
 )
 
-for col in filter_columns:
-    unique_values = df[col].dropna().astype(str).unique()
+selected_dataset = next(
+    item for item in dataset_options
+    if item["dataset_name"] == selected_dataset_name
+)
 
-    if len(unique_values) <= 50:
-        selected_values = st.multiselect(
-            f"Filter by {col}",
-            options=sorted(unique_values),
-            key=f"filter_{col}"
-        )
+df = load_dataset(selected_dataset["filename"])
 
-        if selected_values:
-            filtered_df = filtered_df[
-                filtered_df[col].astype(str).isin(selected_values)
-            ]
+filtered_df, year_col, show_col, region_col = apply_filters(df)
 
-    else:
-        search_text = st.text_input(
-            f"Search inside {col}",
-            key=f"search_{col}"
-        )
+if filtered_df.empty:
+    st.warning("No data matches your selected filters.")
+    st.stop()
 
-        if search_text:
-            filtered_df = filtered_df[
-                filtered_df[col].astype(str).str.contains(
-                    search_text,
-                    case=False,
-                    na=False
-                )
-            ]
-
-st.info(f"Showing {filtered_df.shape[0]} of {df.shape[0]} records after filtering.")
-
-df = filtered_df
-
-
-# -------------------------------------------------
-# METRIC CARDS
-# -------------------------------------------------
-numeric_cols = df.select_dtypes(include="number").columns.tolist()
-text_cols = df.select_dtypes(include="object").columns.tolist()
-missing_values = int(df.isna().sum().sum())
+text_cols = detect_text_columns(filtered_df)
+numeric_cols = filtered_df.select_dtypes(include=["int64", "float64"]).columns.tolist()
 
 c1, c2, c3, c4 = st.columns(4)
 
 with c1:
     st.markdown(f"""
     <div class="metric-card">
-        <div class="metric-number">{df.shape[0]}</div>
-        <div class="metric-label">Rows / Records</div>
+        <div class="metric-number">{len(filtered_df)}</div>
+        <div class="metric-label">Filtered Records</div>
     </div>
     """, unsafe_allow_html=True)
 
 with c2:
     st.markdown(f"""
     <div class="metric-card">
-        <div class="metric-number">{df.shape[1]}</div>
-        <div class="metric-label">Columns / Fields</div>
+        <div class="metric-number">{len(text_cols)}</div>
+        <div class="metric-label">Text Columns</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -271,359 +366,190 @@ with c3:
     st.markdown(f"""
     <div class="metric-card">
         <div class="metric-number">{len(numeric_cols)}</div>
-        <div class="metric-label">Numeric Fields</div>
+        <div class="metric-label">Numeric Columns</div>
     </div>
     """, unsafe_allow_html=True)
 
 with c4:
     st.markdown(f"""
     <div class="metric-card">
-        <div class="metric-number">{missing_values}</div>
-        <div class="metric-label">Missing Values</div>
+        <div class="metric-number">{len(filtered_df.columns)}</div>
+        <div class="metric-label">Total Columns</div>
     </div>
     """, unsafe_allow_html=True)
 
+st.write("")
 
-# -------------------------------------------------
-# AI SUMMARY
-# -------------------------------------------------
-def generate_ai_summary(data):
-    column_names = ", ".join([str(c) for c in data.columns[:30]])
+st.markdown('<div class="section-card">', unsafe_allow_html=True)
+st.subheader("Select Text Columns for Analysis")
 
-    show_summary = "No show column detected."
-    if show_col:
-        top_shows = data[show_col].dropna().astype(str).value_counts().head(5)
-        show_summary = "; ".join([f"{k}: {v}" for k, v in top_shows.items()])
+selected_text_cols = st.multiselect(
+    "Choose comment, feedback, reflection or survey response columns.",
+    text_cols,
+    default=text_cols[:3]
+)
 
-    regional_summary = "No regional/metro field detected."
-    if "Venue Area" in data.columns:
-        area_counts = data["Venue Area"].dropna().astype(str).value_counts()
-        regional_summary = "; ".join([f"{k}: {v}" for k, v in area_counts.items()])
-    elif "Area Type" in data.columns:
-        area_counts = data["Area Type"].dropna().astype(str).value_counts()
-        regional_summary = "; ".join([f"{k}: {v}" for k, v in area_counts.items()])
+st.markdown("</div>", unsafe_allow_html=True)
 
-    fallback = (
-        f"This dataset contains {data.shape[0]} records and {data.shape[1]} columns. "
-        f"Important detected fields include: {column_names}. "
-        f"Show activity: {show_summary}. "
-        f"Regional or metro distribution: {regional_summary}."
-    )
+if not selected_text_cols:
+    st.warning("Please select at least one text column.")
+    st.stop()
 
-    if not OPENAI_API_KEY or OpenAI is None:
-        return fallback
+word_df, sentiment_df, theme_df, response_df = analyse_text(filtered_df, selected_text_cols)
 
-    try:
-        client = OpenAI(api_key=OPENAI_API_KEY)
+left, right = st.columns([1.2, 1])
 
-        response = client.responses.create(
-            model="gpt-4.1-mini",
-            input=f"""
-            Write a clear professional summary of this dataset for Monkey Baa Theatre Company.
+with left:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("Most Common Words")
 
-            Focus on:
-            - what the dataset appears to contain
-            - important fields
-            - show activity
-            - survey count per show if available
-            - regional or metro information if available
-            - what the organisation should notice
-
-            Dataset name: {selected_dataset}
-            Dataset type: {selected_item.get("dataset_type", "")}
-            Rows: {data.shape[0]}
-            Columns: {data.shape[1]}
-            Columns: {column_names}
-            Show summary: {show_summary}
-            Regional summary: {regional_summary}
-
-            Keep it under 140 words.
-            """
+    if not word_df.empty:
+        fig_words = px.bar(
+            word_df,
+            x="count",
+            y="word",
+            orientation="h",
+            title="Top Words in Feedback"
         )
+        fig_words.update_layout(
+            height=520,
+            yaxis={"categoryorder": "total ascending"},
+            margin=dict(l=20, r=20, t=50, b=20)
+        )
+        st.plotly_chart(fig_words, use_container_width=True)
+    else:
+        st.info("No words found.")
 
-        return response.output_text
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    except Exception:
-        return fallback
+with right:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("Sentiment Distribution")
 
+    if not sentiment_df.empty:
+        fig_sentiment = px.pie(
+            sentiment_df,
+            names="sentiment",
+            values="count",
+            hole=0.45,
+            title="Feedback Sentiment"
+        )
+        fig_sentiment.update_layout(height=360)
+        st.plotly_chart(fig_sentiment, use_container_width=True)
+    else:
+        st.info("No sentiment data available.")
 
-st.markdown('<div class="section-title">🤖 Automatic Data Summary</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-summary_text = generate_ai_summary(df)
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("Theme Detection")
 
-st.markdown(f"""
-<div class="insight-box">
-    <strong>Summary:</strong><br>
-    {summary_text}
-</div>
-""", unsafe_allow_html=True)
+    if not theme_df.empty:
+        fig_themes = px.bar(
+            theme_df,
+            x="theme",
+            y="count",
+            title="Detected Feedback Themes"
+        )
+        fig_themes.update_layout(height=320)
+        st.plotly_chart(fig_themes, use_container_width=True)
+    else:
+        st.info("No themes detected.")
 
-
-# -------------------------------------------------
-# DATA PREVIEW
-# -------------------------------------------------
-st.markdown('<div class="section-title">👀 Data Preview</div>', unsafe_allow_html=True)
-
-with st.expander("View first 100 rows", expanded=False):
-    st.dataframe(df.head(100), use_container_width=True)
-
-
-# -------------------------------------------------
-# GENERAL DATA QUALITY
-# -------------------------------------------------
-st.markdown('<div class="section-title">🧹 Data Quality Overview</div>', unsafe_allow_html=True)
-
-quality_cols = st.columns(2)
-
-with quality_cols[0]:
-    missing_by_col = df.isna().sum().sort_values(ascending=False).head(15).reset_index()
-    missing_by_col.columns = ["Column", "Missing Values"]
-
-    fig_missing = px.bar(
-        missing_by_col,
-        x="Column",
-        y="Missing Values",
-        title="Top Columns with Missing Values",
-        text="Missing Values"
-    )
-    fig_missing.update_layout(xaxis_tickangle=-35)
-    st.plotly_chart(fig_missing, use_container_width=True, key="missing_values_chart")
-
-with quality_cols[1]:
-    dtype_df = pd.DataFrame(df.dtypes.astype(str).value_counts()).reset_index()
-    dtype_df.columns = ["Data Type", "Count"]
-
-    fig_types = px.pie(
-        dtype_df,
-        names="Data Type",
-        values="Count",
-        title="Column Type Distribution"
-    )
-    st.plotly_chart(fig_types, use_container_width=True, key="data_type_chart")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
-# -------------------------------------------------
-# SHOW ANALYSIS
-# -------------------------------------------------
-st.markdown('<div class="section-title">🎭 Show Review</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-card">', unsafe_allow_html=True)
+st.subheader("Filtered Data Overview")
 
 if show_col:
-    show_counts = df[show_col].dropna().astype(str).value_counts().reset_index()
-    show_counts.columns = ["Show Name", "Survey / Record Count"]
+    show_summary = filtered_df[show_col].astype(str).value_counts().head(10).reset_index()
+    show_summary.columns = ["Show / Program", "Count"]
 
-    left, right = st.columns([2, 1])
-
-    with left:
-        fig_show = px.bar(
-            show_counts.head(20),
-            x="Show Name",
-            y="Survey / Record Count",
-            title="Survey / Record Count by Show",
-            text="Survey / Record Count"
-        )
-        fig_show.update_layout(xaxis_tickangle=-35)
-        st.plotly_chart(fig_show, use_container_width=True, key="show_count_chart")
-
-    with right:
-        st.dataframe(show_counts, use_container_width=True)
-
-else:
-    st.info("No show column detected. A show column usually contains words like 'show' in the heading.")
-
-
-# -------------------------------------------------
-# REGIONAL / VENUE ANALYSIS
-# -------------------------------------------------
-st.markdown('<div class="section-title">🌍 Regional, Metro and Venue Review</div>', unsafe_allow_html=True)
-
-area_source = None
-
-if "Venue Area" in df.columns:
-    area_source = "Venue Area"
-elif "Area Type" in df.columns:
-    area_source = "Area Type"
-
-if area_source:
-    area_counts = df[area_source].dropna().astype(str).value_counts().reset_index()
-    area_counts.columns = [area_source, "Count"]
-
-    a1, a2 = st.columns([2, 1])
-
-    with a1:
-        fig_area = px.pie(
-            area_counts,
-            names=area_source,
-            values="Count",
-            title="Regional / Metro / Area Distribution"
-        )
-        st.plotly_chart(fig_area, use_container_width=True, key="area_distribution_chart")
-
-    with a2:
-        st.dataframe(area_counts, use_container_width=True)
-else:
-    st.info("No regional/metro classification detected yet. Upload venue reference data or postcode/location data.")
-
-
-if "Matched Venue" in df.columns:
-    venue_counts = df["Matched Venue"].dropna().astype(str).value_counts().reset_index()
-    venue_counts.columns = ["Matched Venue", "Count"]
-
-    fig_venue = px.bar(
-        venue_counts.head(20),
-        x="Matched Venue",
+    fig_show = px.bar(
+        show_summary,
+        x="Show / Program",
         y="Count",
-        title="Top Matched Venues",
-        text="Count"
+        title="Top Shows / Programs"
     )
-    fig_venue.update_layout(xaxis_tickangle=-35)
-    st.plotly_chart(fig_venue, use_container_width=True, key="matched_venue_chart")
+    st.plotly_chart(fig_show, use_container_width=True)
 
+if region_col:
+    region_summary = filtered_df[region_col].astype(str).value_counts().reset_index()
+    region_summary.columns = ["Region / Venue", "Count"]
 
-# -------------------------------------------------
-# CITY / STATE REVIEW
-# -------------------------------------------------
-st.markdown('<div class="section-title">🏙️ City and State Review</div>', unsafe_allow_html=True)
-
-g1, g2 = st.columns(2)
-
-with g1:
-    if "Estimated City" in df.columns:
-        city_counts = df["Estimated City"].dropna().astype(str).value_counts().head(15).reset_index()
-        city_counts.columns = ["Estimated City", "Count"]
-
-        fig_city = px.bar(
-            city_counts,
-            x="Estimated City",
-            y="Count",
-            title="Top Estimated Cities / Regions",
-            text="Count"
-        )
-        fig_city.update_layout(xaxis_tickangle=-35)
-        st.plotly_chart(fig_city, use_container_width=True, key="city_review_chart")
-    else:
-        st.info("No estimated city data available.")
-
-with g2:
-    if "Australian State" in df.columns:
-        state_counts = df["Australian State"].dropna().astype(str).value_counts().reset_index()
-        state_counts.columns = ["Australian State", "Count"]
-
-        fig_state = px.pie(
-            state_counts,
-            names="Australian State",
-            values="Count",
-            title="Australian State Distribution"
-        )
-        st.plotly_chart(fig_state, use_container_width=True, key="state_review_chart")
-    else:
-        st.info("No Australian state data available.")
-
-
-# -------------------------------------------------
-# AUTO CHARTS FOR ANY DATA
-# -------------------------------------------------
-st.markdown('<div class="section-title">📈 Automatic Charts from This Dataset</div>', unsafe_allow_html=True)
-
-categorical_cols = [
-    col for col in df.columns
-    if df[col].dtype == "object" and df[col].nunique(dropna=True) > 1 and df[col].nunique(dropna=True) <= 30
-]
-
-if categorical_cols:
-    selected_cat = st.selectbox("Choose a categorical field to chart", categorical_cols)
-
-    cat_counts = df[selected_cat].dropna().astype(str).value_counts().head(20).reset_index()
-    cat_counts.columns = [selected_cat, "Count"]
-
-    fig_cat = px.bar(
-        cat_counts,
-        x=selected_cat,
-        y="Count",
-        title=f"Distribution of {selected_cat}",
-        text="Count"
+    fig_region = px.pie(
+        region_summary,
+        names="Region / Venue",
+        values="Count",
+        title="Region / Venue Distribution"
     )
-    fig_cat.update_layout(xaxis_tickangle=-35)
-    st.plotly_chart(fig_cat, use_container_width=True, key="automatic_category_chart")
+    st.plotly_chart(fig_region, use_container_width=True)
+
+st.markdown("</div>", unsafe_allow_html=True)
+
+
+st.markdown('<div class="section-card">', unsafe_allow_html=True)
+st.subheader("Visual Connection to OKR Analysis")
+
+st.write("""
+The dashboard prepares the qualitative evidence that supports the OKR Analysis page.  
+Themes detected from comments can be linked to impact areas such as engagement, learning, creativity, accessibility and emotional impact.
+""")
+
+if not theme_df.empty:
+    okr_df = okr_theme_connection(theme_df)
+
+    for _, row in okr_df.iterrows():
+        st.markdown(f"""
+        <div class="okr-box">
+            <strong>{row["Detected Theme"]}</strong><br>
+            <span class="small-muted">Mentions: {row["Mentions"]}</span><br><br>
+            {row["Linked OKR / Impact Area"]}
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.dataframe(okr_df, use_container_width=True)
+
+st.info("Next step: open the OKR Analysis page to compare these themes with KPI/OKR performance results.")
+
+st.markdown("</div>", unsafe_allow_html=True)
+
+
+st.markdown('<div class="section-card">', unsafe_allow_html=True)
+st.subheader("Sample Text Analysis")
+
+if not response_df.empty:
+    st.dataframe(response_df.head(50), use_container_width=True)
 else:
-    st.info("No suitable categorical columns found for automatic charting.")
+    st.info("No text responses available.")
 
-if numeric_cols:
-    selected_num = st.selectbox("Choose a numeric field to review", numeric_cols)
-
-    fig_num = px.histogram(
-        df,
-        x=selected_num,
-        title=f"Distribution of {selected_num}"
-    )
-    st.plotly_chart(fig_num, use_container_width=True, key="automatic_numeric_chart")
+st.markdown("</div>", unsafe_allow_html=True)
 
 
-# -------------------------------------------------
-# DOWNLOAD
-# -------------------------------------------------
-st.markdown('<div class="section-title">⬇️ Download Reviewed Data</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-card">', unsafe_allow_html=True)
+st.subheader("Clear Data-Driven Interpretation")
 
-download_choice = st.selectbox(
-    "Choose what to download",
-    [
-        "Reviewed Dataset",
-        "Data Summary",
-        "Show Summary",
-        "Regional / Metro Summary",
-        "City / State Summary"
-    ]
-)
+positive = sentiment_df[sentiment_df["sentiment"] == "Positive"]["count"].sum() if "Positive" in sentiment_df["sentiment"].values else 0
+negative = sentiment_df[sentiment_df["sentiment"] == "Negative"]["count"].sum() if "Negative" in sentiment_df["sentiment"].values else 0
+neutral = sentiment_df[sentiment_df["sentiment"] == "Neutral"]["count"].sum() if "Neutral" in sentiment_df["sentiment"].values else 0
 
-from lib.floating_assistant import render_floating_ai_assistant
-render_floating_ai_assistant()
-
-
-if download_choice == "Reviewed Dataset":
-    download_df = df
-
-elif download_choice == "Data Summary":
-    download_df = pd.DataFrame({
-        "Metric": ["Dataset", "Rows", "Columns", "Missing Values", "Numeric Columns", "Text Columns"],
-        "Value": [selected_dataset, df.shape[0], df.shape[1], missing_values, len(numeric_cols), len(text_cols)]
-    })
-
-elif download_choice == "Show Summary":
-    if show_col:
-        download_df = show_counts
-    else:
-        download_df = pd.DataFrame({"Message": ["No show column detected"]})
-
-elif download_choice == "Regional / Metro Summary":
-    if area_source:
-        download_df = area_counts
-    else:
-        download_df = pd.DataFrame({"Message": ["No regional/metro column detected"]})
-
+if positive > negative:
+    st.success("The selected data shows stronger positive feedback than negative feedback.")
+elif negative > positive:
+    st.error("The selected data shows stronger negative feedback than positive feedback.")
 else:
-    rows = []
+    st.info("The selected data shows a balanced or mostly neutral feedback pattern.")
 
-    if "Estimated City" in df.columns:
-        for value, count in df["Estimated City"].dropna().astype(str).value_counts().items():
-            rows.append({"Category": "Estimated City", "Value": value, "Count": count})
+st.write(f"""
+Based on the selected cleaned dataset and filters:
 
-    if "Australian State" in df.columns:
-        for value, count in df["Australian State"].dropna().astype(str).value_counts().items():
-            rows.append({"Category": "Australian State", "Value": value, "Count": count})
+- **Positive responses:** {positive}
+- **Negative responses:** {negative}
+- **Neutral responses:** {neutral}
+- **Most common words:** used to identify repeated audience or teacher concerns
+- **Detected themes:** used to connect qualitative feedback with impact reporting
+- **OKR link:** themes can support the OKR Analysis page by explaining why certain outcomes are strong or weak
+""")
 
-    download_df = pd.DataFrame(rows)
-
-output = BytesIO()
-
-with pd.ExcelWriter(output, engine="openpyxl") as writer:
-    download_df.to_excel(writer, index=False, sheet_name="Data_Review")
-
-st.download_button(
-    "Download Selected Review",
-    output.getvalue(),
-    file_name="monkey_baa_data_review.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
-
-st.caption(
-    "Note: venue and postcode classifications are estimates based on available uploaded reference data."
-)
+st.markdown("</div>", unsafe_allow_html=True)

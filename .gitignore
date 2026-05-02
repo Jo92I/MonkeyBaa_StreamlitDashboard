@@ -4,3 +4,14 @@ __pycache__/
 *.pyc
 .venv/
 stored_data/
+.env
+secrets.toml
+.streamlit/secrets.toml
+__pycache__/
+*.pyc
+.env
+secrets.toml
+.streamlit/secrets.toml
+__pycache__/
+*.pyc
+.env
