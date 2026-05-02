@@ -20,6 +20,7 @@ except Exception:
     OpenAI = None
 
 
+
 # -------------------------------------------------
 # PAGE CONFIG
 # -------------------------------------------------
@@ -28,7 +29,10 @@ st.set_page_config(
     page_icon="🎯",
     layout="wide"
 )
+from lib.style import inject_css, render_sidebar_nav
 
+inject_css()
+render_sidebar_nav()
 
 # -------------------------------------------------
 # LOGIN PROTECTION
@@ -686,7 +690,7 @@ selected_survey_name = st.session_state["okr_columns"]["survey_name"]
 # -------------------------------------------------
 # SUMMARY
 # -------------------------------------------------
-st.subheader("📊 Overall OKR Summary")
+st.subheader("📊 Overall OKR Performance")
 
 st.caption(f"Analysis based on selected survey/data file: **{selected_survey_name}**")
 

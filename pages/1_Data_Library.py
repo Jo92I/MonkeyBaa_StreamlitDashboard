@@ -11,6 +11,11 @@ from lib.data_store import (
     delete_dataset,
     update_notes
 )
+from lib.style import inject_css, render_sidebar_nav
+
+inject_css()
+render_sidebar_nav()
+
 from lib.insights import generate_dataset_summary
 from lib.venue_matcher import add_venue_area_to_survey
 

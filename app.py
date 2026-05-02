@@ -1,121 +1,202 @@
 import streamlit as st
+from pathlib import Path
+
 from lib.auth import login, signup, load_users
+from lib.style import inject_css, LOGO_URL, render_sidebar_nav
 
 st.set_page_config(
     page_title="Monkey Baa AI Analysis",
     page_icon="🎭",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-# Ensure admin exists
 load_users()
+inject_css()
 
-st.markdown("""
-<style>
-:root {
-    --card-bg: rgba(255,255,255,0.92);
-    --text-main: #1f2937;
-    --text-soft: #4b5563;
-    --accent: #b83280;
-    --border: #f3d1e3;
-}
-@media (prefers-color-scheme: dark) {
-    :root {
-        --card-bg: rgba(31,41,55,0.94);
-        --text-main: #f9fafb;
-        --text-soft: #d1d5db;
-        --accent: #f9a8d4;
-        --border: rgba(249,168,212,0.35);
-    }
-}
-.login-card {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 26px;
-    padding: 32px;
-    box-shadow: 0 10px 28px rgba(0,0,0,0.08);
-}
-.hero-title {
-    color: var(--text-main);
-    font-size: 38px;
-    font-weight: 800;
-}
-.hero-text {
-    color: var(--text-soft);
-    font-size: 17px;
-}
-</style>
-""", unsafe_allow_html=True)
-
+# -------------------------------
+# SESSION STATE
+# -------------------------------
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
 if "username" not in st.session_state:
     st.session_state.username = ""
 
-st.markdown("""
-<div class="login-card">
-    <div class="hero-title">🎭 Monkey Baa AI Impact Analytics</div>
-    <div class="hero-text">
-        Login to manage data, view Theory of Change insights, analyse OKRs and use the AI assistant.
-    </div>
-</div>
-""", unsafe_allow_html=True)
 
+# -------------------------------
+# PAGE PATHS
+# -------------------------------
+DATA_LIBRARY_PAGE = "pages/1_Data_Library.py"
+OKR_PAGE = "pages/2_OKR_Analysis.py"
+AI_ASSISTANT_PAGE = "pages/4_AI_Assistant.py"
+
+
+render_sidebar_nav()
+
+# -------------------------------
+# AFTER LOGIN HOME PAGE
+# -------------------------------
 if st.session_state.logged_in:
-    st.success(f"Welcome, {st.session_state.username}")
 
-    st.info("""
-    Use the sidebar to access:
-    - Data Library
-    - OKR Analysis
-    - AI Dashboard
-    - AI Assistant
-    """)
+    col1, col2, col3 = st.columns([1, 2, 1])
 
-    if st.button("Logout"):
-        st.session_state.logged_in = False
-        st.session_state.username = ""
-        st.rerun()
+    with col2:
+        st.image(LOGO_URL, width=500)
 
+    st.markdown(f"""
+    <div class="hero-card">
+        <div class="hero-title">Welcome back, {st.session_state.username} 👋</div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    m1, m2 = st.columns(2)
+
+    with m1:
+        st.markdown("""
+        <div class="metric-card">
+            <div class="metric-number">AI</div>
+            <div class="metric-label">Impact Analysis Engine</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with m2:
+        st.markdown("""
+        <div class="metric-card">
+            <div class="metric-number">OKR</div>
+            <div class="metric-label">Outcome-Based Measurement</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("## Platform Modules")
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.markdown("""
+        <div class="saas-card">
+            <div class="feature-title">📂 Data Library</div>
+            <div class="feature-text">
+                Upload, manage, clean, and organise survey datasets, Excel files, venue data, and framework documents.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if Path(DATA_LIBRARY_PAGE).exists():
+            st.page_link(DATA_LIBRARY_PAGE, label="Open Data Library", icon="📂")
+        else:
+            st.warning("Data Library page file not found.")
+
+        st.markdown("""
+        <div class="saas-card">
+            <div class="feature-title">🎯 OKR Analysis</div>
+            <div class="feature-text">
+                Map Key Results to impact indicators and evaluate performance against outcome-based targets.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if Path(OKR_PAGE).exists():
+            st.page_link(OKR_PAGE, label="Open OKR Analysis", icon="🎯")
+        else:
+            st.warning("OKR Analysis page file not found.")
+
+    with c2:
+        st.markdown("""
+        <div class="saas-card">
+            <div class="feature-title">🤖 AI Assistance</div>
+            <div class="feature-text">
+                Ask natural-language questions about the data and generate clear, board-ready impact insights.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if Path(AI_ASSISTANT_PAGE).exists():
+            st.page_link(AI_ASSISTANT_PAGE, label="Open AI Assistance", icon="🤖")
+        else:
+            st.warning("AI Assistance page file not found.")
+
+
+# -------------------------------
+# BEFORE LOGIN PAGE
+# -------------------------------
 else:
-    tab_login, tab_signup = st.tabs(["Login", "Sign Up"])
 
-    with tab_login:
-        st.subheader("Login")
+    st.markdown("""
+    <div class="hero-card">
+        <div class="hero-title">🎭 Monkey Baa AI Impact Analytics</div>
+        <div class="hero-text">
+            A prototype AI-powered reporting platform for social impact analysis.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-        username = st.text_input("Username", key="login_username")
-        password = st.text_input("Password", type="password", key="login_password")
+    left, right = st.columns([1, 1])
 
-        if st.button("Login"):
-            success, message = login(username, password)
+    with left:
+        st.image(LOGO_URL, use_container_width=True)
 
-            if success:
-                st.session_state.logged_in = True
-                st.session_state.username = username
-                st.success(message)
-                st.rerun()
-            else:
-                st.error(message)
+    with right:
+        st.markdown("""
+        <div class="login-card">
+            <div class="feature-text">
+                Demo details are pre-filled. Click Login to continue.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-        st.caption("Default main user: username = admin, password = admin")
+        tab_login, tab_signup = st.tabs(["Login", "Sign Up"])
 
-    with tab_signup:
-        st.subheader("Create New Account")
+        with tab_login:
+            username = st.text_input(
+                "Username",
+                value="admin",
+                key="login_username"
+            )
 
-        new_username = st.text_input("New username", key="signup_username")
-        new_password = st.text_input("New password", type="password", key="signup_password")
-        confirm_password = st.text_input("Confirm password", type="password", key="signup_confirm")
+            password = st.text_input(
+                "Password",
+                value="admin",
+                type="password",
+                key="login_password"
+            )
 
-        if st.button("Sign Up"):
-            if new_password != confirm_password:
-                st.error("Passwords do not match.")
-            else:
-                success, message = signup(new_username, new_password)
+            if st.button("Login", type="primary", use_container_width=True):
+                success, message = login(username, password)
 
                 if success:
+                    st.session_state.logged_in = True
+                    st.session_state.username = username
                     st.success(message)
+                    st.rerun()
                 else:
                     st.error(message)
-from lib.floating_assistant import render_floating_ai_assistant
-render_floating_ai_assistant()
+
+            st.caption("Demo login is pre-filled: admin / admin")
+
+        with tab_signup:
+            new_username = st.text_input("New username", key="signup_username")
+            new_password = st.text_input("New password", type="password", key="signup_password")
+            confirm_password = st.text_input("Confirm password", type="password", key="signup_confirm")
+
+            if st.button("Sign Up", use_container_width=True):
+                if new_password != confirm_password:
+                    st.error("Passwords do not match.")
+                else:
+                    success, message = signup(new_username, new_password)
+
+                    if success:
+                        st.success(message)
+                    else:
+                        st.error(message)
+
+
+# -------------------------------
+# FLOATING ASSISTANT
+# -------------------------------
+try:
+    from lib.floating_assistant import render_floating_ai_assistant
+    render_floating_ai_assistant()
+except Exception:
+    pass
