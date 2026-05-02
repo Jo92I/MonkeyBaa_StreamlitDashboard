@@ -816,7 +816,19 @@ for area in outcome_areas:
                     st.plotly_chart(
                         fig,
                         use_container_width=True,
-                        key=f"okr_donut_{safe_kr_name}_{row_index}_{chart_counter}"
+                        key=f"okr_donut_{safe_kr_name}_{row_index}_{chart_counter}",
+                        config={
+                            "modeBarButtonsToRemove": ["toImage"],
+                            "displaylogo": False
+                        }
+                    )
+
+                    st.download_button(
+                        label="⬇️ Download chart data",
+                        data=df_objective.to_csv(index=False).encode("utf-8"),
+                        file_name="okr_key_result_breakdown.csv",
+                        mime="text/csv",
+                        key=f"download_okr_data_{row_index}_{chart_counter}"
                     )
 
                 with p2:
@@ -833,7 +845,7 @@ for area in outcome_areas:
 # BENCHMARKING
 # -------------------------------------------------
 st.divider()
-st.subheader("📊 Global Compliance Benchmarking")
+st.subheader("📊 Actual vs Target OKR Benchmarking")
 
 benchmark_df = df_results.set_index(col_key_result)[
     ["Actual", "Expected_Num"]
