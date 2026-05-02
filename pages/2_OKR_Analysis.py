@@ -29,10 +29,11 @@ st.set_page_config(
     page_icon="🎯",
     layout="wide"
 )
-from lib.style import inject_css, render_sidebar_nav
+from lib.style import inject_css, render_sidebar_nav, require_login
 
 inject_css()
 render_sidebar_nav()
+require_login()
 
 # -------------------------------------------------
 # LOGIN PROTECTION

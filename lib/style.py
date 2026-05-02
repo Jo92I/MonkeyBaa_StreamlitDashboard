@@ -2,6 +2,23 @@ import streamlit as st
 
 LOGO_URL = "data/MonkeyBaaLogo.png"
 
+def require_login():
+    import streamlit as st
+
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+
+    if not st.session_state.logged_in:
+        st.warning("You are logged out. Please return to the login page.")
+
+        st.page_link(
+            "app.py",
+            label="Go to Login Page",
+            icon="🏠"
+        )
+
+        st.stop()
+        
 from pathlib import Path
 
 DATA_LIBRARY_PAGE = "pages/1_Data_Library.py"

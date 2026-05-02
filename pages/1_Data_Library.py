@@ -11,19 +11,18 @@ from lib.data_store import (
     delete_dataset,
     update_notes
 )
-from lib.style import inject_css, render_sidebar_nav
+from lib.style import inject_css, render_sidebar_nav, require_login
 
 inject_css()
 render_sidebar_nav()
+require_login()
 
 from lib.insights import generate_dataset_summary
 from lib.venue_matcher import add_venue_area_to_survey
 
 st.set_page_config(page_title="Data Library", page_icon="📁", layout="wide")
 
-if "logged_in" not in st.session_state or not st.session_state.logged_in:
-    st.warning("Please login first from the Home page.")
-    st.stop()
+
 
 st.title("📁 Monkey Baa Data Library")
 
