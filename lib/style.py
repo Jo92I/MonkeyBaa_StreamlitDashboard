@@ -37,16 +37,16 @@ def render_sidebar_nav():
 
             st.markdown("### Navigation")
 
-            st.page_link("app.py", label=" Home", icon="🏠")
+            st.page_link("app.py", label="🏠 Home", icon="🏠")
 
             if Path(DATA_LIBRARY_PAGE).exists():
-                st.page_link(DATA_LIBRARY_PAGE, label="📂 Data Library", icon="")
+                st.page_link(DATA_LIBRARY_PAGE, label="📂 Data Library", icon="📂")
 
             if Path(OKR_PAGE).exists():
-                st.page_link(OKR_PAGE, label="🎯 OKR Analysis", icon="")
+                st.page_link(OKR_PAGE, label="🎯 OKR Analysis", icon="🎯")
 
             if Path(AI_ASSISTANT_PAGE).exists():
-                st.page_link(AI_ASSISTANT_PAGE, label="🤖 AI Assistance", icon="")
+                st.page_link(AI_ASSISTANT_PAGE, label="🤖 AI Assistance", icon="🤖")
 
             st.divider()
 
