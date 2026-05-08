@@ -1,3 +1,6 @@
+from turtle import st
+
+from PIL.SpiderImagePlugin import filename
 import pandas as pd
 import json
 from pathlib import Path
@@ -39,9 +42,18 @@ def save_dataset(df, dataset_name, dataset_type, notes=""):
     })
     save_catalog(catalog)
 
+def load_dataset(filename):
+    file_path = DATA_DIR / filename
 
-def list_datasets():
-    return load_catalog()
+    if not file_path.exists():
+        raise FileNotFoundError(
+            f"Dataset file not found: {filename}. Please re-upload this file in the Data Library."
+        )
+
+    if filename.lower().endswith(".csv"):
+        return pd.read_csv(file_path)
+
+    return pd.read_excel(file_path)
 
 
 def load_dataset(filename):
@@ -79,6 +91,11 @@ def load_all_data():
 
     for item in catalog:
         df = load_dataset(item["filename"])
+        try:
+            df = load_dataset(filename)
+        except FileNotFoundError:
+             st.error(f"File missing: {filename}. Please re-upload this dataset.")
+             continue
         df["Dataset Name"] = item["dataset_name"]
         df["Dataset Type"] = item["dataset_type"]
         frames.append(df)
