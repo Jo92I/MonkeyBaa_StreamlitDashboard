@@ -1,5 +1,4 @@
-from turtle import st
-
+import streamlit as st
 from PIL.SpiderImagePlugin import filename
 import pandas as pd
 import json
