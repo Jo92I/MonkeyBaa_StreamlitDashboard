@@ -1,5 +1,3 @@
-import streamlit as st
-from PIL.SpiderImagePlugin import filename
 import pandas as pd
 import json
 from pathlib import Path
@@ -14,11 +12,20 @@ CATALOG_FILE = DATA_DIR / "data_catalog.json"
 def load_catalog():
     if not CATALOG_FILE.exists():
         CATALOG_FILE.write_text("[]")
-    return json.loads(CATALOG_FILE.read_text())
+
+    try:
+        return json.loads(CATALOG_FILE.read_text())
+    except json.JSONDecodeError:
+        CATALOG_FILE.write_text("[]")
+        return []
 
 
 def save_catalog(catalog):
     CATALOG_FILE.write_text(json.dumps(catalog, indent=4))
+
+
+def list_datasets():
+    return load_catalog()
 
 
 def save_dataset(df, dataset_name, dataset_type, notes=""):
@@ -39,7 +46,10 @@ def save_dataset(df, dataset_name, dataset_type, notes=""):
         "columns": int(df.shape[1]),
         "notes": notes
     })
+
     save_catalog(catalog)
+    return filename
+
 
 def load_dataset(filename):
     file_path = DATA_DIR / filename
@@ -55,12 +65,15 @@ def load_dataset(filename):
     return pd.read_excel(file_path)
 
 
-def load_dataset(filename):
-    return pd.read_excel(DATA_DIR / filename)
-
-
 def update_dataset(filename, df):
-    df.to_excel(DATA_DIR / filename, index=False)
+    file_path = DATA_DIR / filename
+
+    if not file_path.exists():
+        raise FileNotFoundError(
+            f"Dataset file not found: {filename}. Please re-upload this file in the Data Library."
+        )
+
+    df.to_excel(file_path, index=False)
 
 
 def delete_dataset(filename):
@@ -70,7 +83,7 @@ def delete_dataset(filename):
         filepath.unlink()
 
     catalog = load_catalog()
-    catalog = [item for item in catalog if item["filename"] != filename]
+    catalog = [item for item in catalog if item.get("filename") != filename]
     save_catalog(catalog)
 
 
@@ -78,7 +91,7 @@ def update_notes(filename, notes):
     catalog = load_catalog()
 
     for item in catalog:
-        if item["filename"] == filename:
+        if item.get("filename") == filename:
             item["notes"] = notes
 
     save_catalog(catalog)
@@ -89,14 +102,18 @@ def load_all_data():
     frames = []
 
     for item in catalog:
-        df = load_dataset(item["filename"])
+        filename = item.get("filename")
+
+        if not filename:
+            continue
+
         try:
             df = load_dataset(filename)
         except FileNotFoundError:
-             st.error(f"File missing: {filename}. Please re-upload this dataset.")
-             continue
-        df["Dataset Name"] = item["dataset_name"]
-        df["Dataset Type"] = item["dataset_type"]
+            continue
+
+        df["Dataset Name"] = item.get("dataset_name", "")
+        df["Dataset Type"] = item.get("dataset_type", "")
         frames.append(df)
 
     if frames:
